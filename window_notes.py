@@ -1,4 +1,4 @@
-"""Window Notes  -  https://github.com/GusSaalfeld/window-notes  (MIT License)
+"""Window Notes for Obsidian  -  https://github.com/GusSaalfeld/window-notes-for-obsidian  (MIT License)
 
 Shows Markdown notes from an Obsidian vault folder on top of the window they are
 attached to. Attach a note with properties at the top of the file:
@@ -11,10 +11,13 @@ attached to. Attach a note with properties at the top of the file:
 
 Use any combination (at least one). Case-insensitive; * and ? are wildcards.
 
+Optional:  note-color: "blue"   (yellow, orange, pink, purple, blue, green, gray, dark or "#rrggbb")
+
 Ctrl+Alt+N   attach a new note to the window you're in (opens it in Obsidian)
 Click title  collapse / expand a note
 Click a box  tick a "- [ ]" checkbox (saved to the file)
-Right-click  open notes folder, start with Windows, reload, quit
+Click a link open a [[note]] in Obsidian, or a web link in the browser
+Right-click  color, opacity, open notes folder, start with Windows, reload, quit
 
 Windows only. Needs Python 3; URL matching also needs:  pip install comtypes
 """
@@ -55,11 +58,27 @@ def load_config():
         import json  # a JSON string is also a valid TOML string (handles quotes and backslashes)
         CONFIG.write_text(f"# Window Notes settings\nvault = {json.dumps(vault)}\nfolder = \"Window notes\"\nhotkey = \"N\"\n",
                           encoding="utf-8")
+    try:
+        opacity = min(1.0, max(0.2, float(cfg.get("opacity", 1.0))))
+    except (TypeError, ValueError):
+        opacity = 1.0
     return (Path(vault), os.environ.get("WN_FOLDER") or cfg.get("folder", "Window notes"),
-            (cfg.get("hotkey") or "N").upper()[:1])
+            (cfg.get("hotkey") or "N").upper()[:1], opacity)
 
 
-VAULT = FOLDER = HOTKEY_KEY = None                     # filled in by load_config() at start-up
+def save_config_value(key, value):
+    """Set one `key = value` line in config.toml, keeping everything else."""
+    import json
+    text = CONFIG.read_text(encoding="utf-8") if CONFIG.exists() else ""
+    line = f"{key} = {json.dumps(value)}"
+    if re.search(rf"(?m)^{key}\s*=", text):
+        text = re.sub(rf"(?m)^{key}\s*=.*$", line, text)
+    else:
+        text = text.rstrip("\n") + "\n" + line + "\n"
+    CONFIG.write_text(text, encoding="utf-8")
+
+
+VAULT = FOLDER = HOTKEY_KEY = OPACITY = None           # filled in by load_config() at start-up
 # FOLDER: inside the vault; subfolders are read too.  HOTKEY_KEY: used with Ctrl+Alt
 POLL_MS = 250                                           # backup check of the active window
 QUEUE_MS = 30                                           # how often the UI picks up events
@@ -289,11 +308,12 @@ def parse_note(path):
         return None
     props = {}
     for line in rows[1:end]:
-        m = re.match(r"^(attach-app|attach-title|attach-url)\s*:\s*(.*?)\s*$", line)
+        m = re.match(r"^(attach-app|attach-title|attach-url|note-color)\s*:\s*(.*?)\s*$", line)
         if m:
             props[m.group(1)] = unquote(m.group(2))
     note = {"path": path, "name": path.stem, "app": props.get("attach-app", ""),
-            "title": props.get("attach-title", ""), "url": props.get("attach-url", "")}
+            "title": props.get("attach-title", ""), "url": props.get("attach-url", ""),
+            "color": props.get("note-color", "")}
     if not (note["app"] or note["title"] or note["url"]):
         return None
     lines = [(i, rows[i].rstrip("\r")) for i in range(end + 1, len(rows))]
@@ -336,6 +356,38 @@ def plain(s):
     return s
 
 
+PALETTES = {"yellow": "#fff4b8", "orange": "#ffe2c2", "pink": "#ffdbe7", "purple": "#e9defc",
+            "blue": "#d9ebff", "green": "#d9f2d9", "gray": "#ececec", "dark": "#2d2d30"}
+
+
+def palette(color):
+    """Background plus matching text, muted, done and border colors for a color name or #hex."""
+    bg = PALETTES.get((color or "yellow").strip().lower(), (color or "").strip())
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", bg):
+        bg = PALETTES["yellow"]
+    rgb = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    light = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] > 140
+    ink = (40, 34, 10) if light else (245, 245, 240)
+
+    def mix(amount):   # move from the background toward the text color
+        return "#%02x%02x%02x" % tuple(round(c + (t - c) * amount) for c, t in zip(rgb, ink))
+
+    return {"bg": bg, "fg": mix(1.0), "muted": mix(0.65), "done": mix(0.45), "border": mix(0.22)}
+
+
+def set_property(path, key, value):
+    """Set (or with an empty value, remove) one property in a note's front matter."""
+    text = path.read_text(encoding="utf-8-sig")
+    rows = text.split("\n")
+    end = next(i for i in range(1, len(rows)) if rows[i].strip() == "---")
+    eol = "\r" if rows[0].endswith("\r") else ""
+    rows = rows[:1] + [r for r in rows[1:end] if not re.match(rf"^{key}\s*:", r)] + rows[end:]
+    end = next(i for i in range(1, len(rows)) if rows[i].strip() == "---")
+    if value:
+        rows.insert(end, f"{key}: {yaml_str(value)}{eol}")
+    path.write_text("\n".join(rows), encoding="utf-8", newline="")
+
+
 def yaml_str(v):
     return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -343,6 +395,31 @@ def yaml_str(v):
 def obsidian_open(path):
     rel = path.relative_to(VAULT).with_suffix("").as_posix()
     os.startfile("obsidian://open?vault=" + urllib.parse.quote(VAULT.name) + "&file=" + urllib.parse.quote(rel))
+
+
+LINK = re.compile(r"\[\[([^\]|#]+)[^\]]*\]\]"           # [[note]], [[note#heading|alias]]
+                  r"|\[[^\]]+\]\(([^)\s]+)\)"            # [text](target)
+                  r"|(https?://[^\s<>)\]]+)")             # bare web address
+
+
+def first_link(text):
+    """('note', name) or ('url', address) for the first link in a line, else None."""
+    m = LINK.search(text)
+    if not m:
+        return None
+    if m.group(1):
+        return ("note", m.group(1).strip())
+    target = m.group(2) or m.group(3).rstrip(".,;:!?")   # "see https://x.com." -> no final period
+    if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I):
+        return ("url", target)
+    return ("note", urllib.parse.unquote(target).split("#")[0].removesuffix(".md"))   # [text](Other%20note.md)
+
+
+def open_link(kind, target):
+    if kind == "url":
+        os.startfile(target)
+    else:   # Obsidian finds the note by name or by path from the vault root
+        os.startfile("obsidian://open?vault=" + urllib.parse.quote(VAULT.name) + "&file=" + urllib.parse.quote(target))
 
 
 def toggle_checkbox(path, lineno):
@@ -423,6 +500,9 @@ class Events(threading.Thread):
 class App:
     BG, FG, MUTED, DONE, BORDER = "#fff4b8", "#2b2610", "#6b5f2a", "#9a8f5c", "#d9c56a"
 
+    def use_palette(self, p):
+        self.BG, self.FG, self.MUTED, self.DONE, self.BORDER = p["bg"], p["fg"], p["muted"], p["done"], p["border"]
+
     def __init__(self):
         self.dir = VAULT / FOLDER
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -445,17 +525,17 @@ class App:
         self.box = tk.Frame(self.root, bg=self.BG)
         self.box.pack(padx=1, pady=1, fill="both")
         self.autostart = tk.BooleanVar(value=STARTUP_FILE.exists())
-        self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Open notes folder", command=lambda: os.startfile(self.dir))
-        self.menu.add_command(label="Reload notes", command=lambda: self.rescan(force=True))
-        self.menu.add_checkbutton(label="Start with Windows", variable=self.autostart, command=self.set_autostart)
-        self.menu.add_separator()
-        self.menu.add_command(label="Quit Window Notes", command=self.quit)
         self.root.update_idletasks()
         self.hwnd = int(self.root.wm_frame(), 16)
         ex = user32.GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE)
         user32.SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
         self.hide()
+
+        # see-through when idle, solid while the mouse is over the box
+        self.opacity = OPACITY
+        self.root.attributes("-alpha", self.opacity)
+        self.root.bind("<Enter>", lambda e: self.root.attributes("-alpha", 1.0))
+        self.root.bind("<Leave>", lambda e: self.root.attributes("-alpha", self.opacity))
 
         # Windows tells the event thread when the active window changes or the target window moves
         self.loc_pid = None
@@ -473,6 +553,9 @@ class App:
         self.toast_until = time.time() + seconds
         for child in self.box.winfo_children():
             child.destroy()
+        self.use_palette(palette(""))
+        self.root.configure(bg=self.BORDER)
+        self.box.configure(bg=self.BG)
         fg = user32.GetForegroundWindow()
         s = dpi_scale(fg) if fg else 1.0
         card = tk.Frame(self.box, bg=self.BG, padx=12, pady=9)
@@ -606,8 +689,12 @@ class App:
         s = dpi_scale(win["hwnd"])
         width = int(BOX_WIDTH * s)
         for i, note in enumerate(hits):
+            self.use_palette(palette(note["color"]))
             if i:
                 tk.Frame(self.box, bg=self.BORDER, height=1).pack(fill="x")
+            else:
+                self.root.configure(bg=self.BORDER)
+                self.box.configure(bg=self.BG)
             card = tk.Frame(self.box, bg=self.BG, padx=10, pady=7)
             card.pack(fill="x")
             open_ = note["path"] not in self.collapsed
@@ -626,9 +713,9 @@ class App:
             edit.bind("<Button-1>", lambda e, n=note: obsidian_open(n["path"]))
             if open_:
                 self.draw_body(card, note, width - 20)
+            self.bind_menu(card, note)
         tk.Frame(self.box, bg=self.BG, width=width, height=0).pack()  # fixes the width
-        for w in [self.box] + self.box.winfo_children():
-            self.bind_menu(w)
+        self.box.bind("<Button-3>", lambda e: self.popup(e))
         self.root.update_idletasks()
         self.size = (width + 2, self.root.winfo_reqheight())
         self.root.geometry(f"{self.size[0]}x{self.size[1]}")
@@ -640,15 +727,25 @@ class App:
         body.pack(fill="x", pady=(3, 0))
         for lineno, raw in shown:
             text = raw.rstrip()
-            if not text.strip():
-                tk.Frame(body, bg=self.BG, height=5).pack(fill="x")
-                continue
             indent = (len(text) - len(text.lstrip())) // 2 * 14
             stripped = text.strip()
+            # quotes and Obsidian callouts:  > text   > [!tip] Title
+            quote = stripped.startswith(">")
+            if quote:
+                stripped = re.sub(r"^(>\s?)+", "", stripped).strip()
+                callout = re.match(r"^\[!(\w+)\][+-]?\s*(.*)$", stripped)
+                if callout:
+                    stripped = "# " + (callout.group(2) or callout.group(1).capitalize())
+            if not stripped:
+                tk.Frame(body, bg=self.BG, height=5).pack(fill="x")
+                continue
+            if quote:
+                indent += 8
             kw = dict(bg=self.BG, fg=self.FG, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=wrap - indent)
             box = re.match(r"^[-*+] \[([ xX])\] ?(.*)$", stripped)
             head = re.match(r"^#{1,6}\s+(.*)$", stripped)
             bullet = re.match(r"^(?:[-*+]|\d+[.)])\s+(.*)$", stripped)
+            link = None if box else first_link(stripped)
             if box:
                 done = box.group(1) in "xX"
                 kw.update(text=("☑  " if done else "☐  ") + plain(box.group(2)), cursor="hand2",
@@ -665,6 +762,10 @@ class App:
             else:
                 kw.update(text=plain(stripped))
                 lab = tk.Label(body, **kw)
+            if link:   # the line opens its link: [[note]] in Obsidian, web links in the browser
+                f = lab.cget("font")
+                lab.configure(cursor="hand2", font=(f + " underline") if isinstance(f, str) else f)
+                lab.bind("<Button-1>", lambda e, l=link: open_link(*l))
             lab.pack(fill="x", padx=(indent, 0))
         if len(lines) > MAX_BODY_LINES:
             more = tk.Label(body, text=f"{len(lines) - MAX_BODY_LINES} more lines: open in Obsidian", bg=self.BG,
@@ -672,10 +773,51 @@ class App:
             more.pack(fill="x", pady=(3, 0))
             more.bind("<Button-1>", lambda e, n=note: obsidian_open(n["path"]))
 
-    def bind_menu(self, widget):
-        widget.bind("<Button-3>", lambda e: self.menu.tk_popup(e.x_root, e.y_root))
+    def bind_menu(self, widget, note=None):
+        widget.bind("<Button-3>", lambda e, n=note: self.popup(e, n))
         for c in widget.winfo_children():
-            self.bind_menu(c)
+            self.bind_menu(c, note)
+
+    def popup(self, event, note=None):
+        menu = tk.Menu(self.root, tearoff=0)
+        if note:
+            colors = tk.Menu(menu, tearoff=0)
+            self._color_var = tk.StringVar(value=(note["color"] or "yellow").lower())
+            for name in PALETTES:
+                colors.add_radiobutton(label=name.capitalize(), value=name, variable=self._color_var,
+                                       command=lambda c=name, n=note: self.set_color(n, c))
+            menu.add_cascade(label=f"Color of “{note['name'][:30]}”", menu=colors)
+        levels = tk.Menu(menu, tearoff=0)
+        self._opacity_var = tk.IntVar(value=round(self.opacity * 100))
+        for pct in (100, 85, 70, 50, 30):
+            levels.add_radiobutton(label=f"{pct}%" + ("  (solid)" if pct == 100 else ""), value=pct,
+                                   variable=self._opacity_var,
+                                   command=lambda p=pct: self.set_opacity(p / 100))
+        menu.add_cascade(label="Opacity (all notes)", menu=levels)
+        menu.add_separator()
+        menu.add_command(label="Open notes folder", command=lambda: os.startfile(self.dir))
+        menu.add_command(label="Reload notes", command=lambda: self.rescan(force=True))
+        menu.add_checkbutton(label="Start with Windows", variable=self.autostart, command=self.set_autostart)
+        menu.add_separator()
+        menu.add_command(label="Quit Window Notes", command=self.quit)
+        self._menu = menu   # keep the Tk variables alive while the menu is open
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def set_color(self, note, name):
+        try:
+            set_property(note["path"], "note-color", "" if name == "yellow" else name)
+        except OSError as e:
+            log("Couldn't save the color:", e)
+        self.rescan(force=True)
+        self.update_box()
+
+    def set_opacity(self, value):
+        self.opacity = value
+        self.root.attributes("-alpha", value)
+        try:
+            save_config_value("opacity", value)
+        except OSError as e:
+            log("Couldn't save the opacity:", e)
 
     # -- actions
     def toggle_collapse(self, note):
@@ -747,5 +889,5 @@ if __name__ == "__main__":
                            "Press Ctrl+Alt+N in any window to attach one. Right-click a note to quit.",
                            "Window Notes", 0x40 | 0x40000)  # info icon, topmost
         sys.exit(0)
-    VAULT, FOLDER, HOTKEY_KEY = load_config()
+    VAULT, FOLDER, HOTKEY_KEY, OPACITY = load_config()
     App().run()

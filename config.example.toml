@@ -9,3 +9,7 @@ folder = "Window notes"
 
 # Ctrl+Alt+<this key> attaches a new note to the active window.
 hotkey = "N"
+
+# How solid notes are when the mouse isn't over them: 1.0 = solid, 0.5 = half see-through.
+# Also settable with right-click -> Opacity.
+opacity = 1.0

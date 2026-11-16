@@ -1,4 +1,4 @@
-# Window Notes
+# Window Notes for Obsidian
 
 Sticky notes that appear on the window they belong to, stored as plain Markdown in your Obsidian vault.
 
@@ -50,11 +50,17 @@ Website matching works in Chrome, Edge, Firefox, Brave, Vivaldi and Opera, and n
 
 - **Click a note's title** to collapse it to one line.
 - **Click a checkbox** (`- [ ]`) to tick it. The change is saved to the file.
+- **Click a link** (underlined): a `[[note]]` opens in Obsidian, a web link opens in your browser.
 - **Edit** opens the note in Obsidian.
 - **×** hides the note for that window until you restart Window Notes.
-- **Right-click** for: open the notes folder, reload, Start with Windows, quit.
+- **Right-click** for: color, opacity, open the notes folder, reload, Start with Windows, quit.
 
-The box never takes keyboard focus, so you can keep typing in your app. Headings, bullets, numbered lists, checkboxes and `[[links]]` are shown in a simple readable form; edit the text itself in Obsidian.
+The box never takes keyboard focus, so you can keep typing in your app. Headings, bullets, numbered lists, checkboxes, links, quotes and callouts (`> [!tip] Title`) are shown in a simple readable form; edit the text itself in Obsidian.
+
+### Color and opacity
+
+- **Color** is set per note: right-click it → **Color**. It's saved in the note as `note-color: "blue"`, so you can also type it yourself, including any `"#rrggbb"` color. Choices: yellow (default), orange, pink, purple, blue, green, gray, dark.
+- **Opacity** applies to all notes: right-click → **Opacity**. A see-through note turns solid while your mouse is over it, so it's always easy to read. It's saved in `config.toml`.
 
 ## Settings
 
@@ -63,6 +69,7 @@ The box never takes keyboard focus, so you can keep typing in your app. Headings
 - `vault`: your Obsidian vault, or any folder of Markdown notes
 - `folder`: the folder inside it for attached notes (default `Window notes`)
 - `hotkey`: the letter used with Ctrl+Alt for a new note (default `N`)
+- `opacity`: how solid notes are when the mouse isn't over them, from `0.2` to `1.0` (default `1.0`)
 
 The vault doesn't have to be an Obsidian vault; only the **Edit** button needs Obsidian.
 

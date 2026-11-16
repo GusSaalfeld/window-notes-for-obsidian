@@ -1,0 +1,2 @@
+# Optional: needed only for attach-url (reading browser address bars)
+comtypes>=1.4

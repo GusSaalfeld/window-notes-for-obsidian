@@ -1,0 +1,11 @@
+# Copy this file to config.toml and edit it (or just start Window Notes:
+# on first run it asks for your vault folder and writes config.toml for you).
+
+# Your Obsidian vault, or any folder of Markdown notes. Use forward slashes or doubled backslashes.
+vault = "C:/Users/you/Documents/My Vault"
+
+# Folder inside the vault where attached notes live. Subfolders are read too.
+folder = "Window notes"
+
+# Ctrl+Alt+<this key> attaches a new note to the active window.
+hotkey = "N"

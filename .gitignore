@@ -1,0 +1,4 @@
+config.toml
+window-notes.log
+__pycache__/
+*.pyc

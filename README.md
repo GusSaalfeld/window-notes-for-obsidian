@@ -1,6 +1,6 @@
 # Window Notes
 
-<img src="docs/banner.png" alt="Window Notes for Obsidian: pin a note to any window. It appears when you open that window and disappears when you switch away. A spreadsheet window with the budget note pinned in its top-right corner." width="840">
+<img src="docs/banner-wide.png" alt="Window Notes for Obsidian: pin a note to any window. It appears when you open that window and disappears when you switch away. A spreadsheet window with the budget note pinned in its top-right corner." width="840">
 
 Window Notes pins a note to the app or website it belongs to. Open your budget spreadsheet and your budget note appears in the corner of its window. Switch to another app and the note disappears.
 

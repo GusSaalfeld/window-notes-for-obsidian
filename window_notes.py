@@ -33,8 +33,15 @@ elif sys.platform.startswith("linux"):
 else:
     sys.exit("Window Notes runs on Windows and Linux for now.")
 
+# Where settings, the log and saved state live. Run from source: next to this file.
+# Run as a downloaded program (built with PyInstaller): in the user's settings folder,
+# because the program itself may sit somewhere read-only like Program Files.
+FROZEN = getattr(sys, "frozen", False)
 HERE = Path(__file__).resolve().parent
-CONFIG = HERE / "config.toml"
+DATA = B.data_dir() if FROZEN else HERE
+DATA.mkdir(parents=True, exist_ok=True)
+CONFIG = DATA / "config.toml"
+STATE = DATA / "state.json"     # remembers which notes are folded
 
 QUEUE_MS = 30          # how often the UI picks up events
 POLL_MS = 250          # how often to re-check the active window (title changes)
@@ -45,7 +52,7 @@ MAX_BODY_LINES = 20    # longer notes get a "N more lines" link
 
 # ---- logging: pythonw has no console, so messages go to a file ---------------
 if sys.stdout is None or sys.stderr is None:
-    sys.stdout = sys.stderr = open(HERE / "window-notes.log", "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = open(DATA / "window-notes.log", "a", encoding="utf-8", buffering=1)
 
 
 def log(*parts):
@@ -97,6 +104,33 @@ def save_config_value(key, value):
     CONFIG.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def launch_command():
+    """How to start this app again (for start at login): the program itself when it's a
+    downloaded build, else Python with this script."""
+    if FROZEN:
+        return [sys.executable]
+    python = Path(sys.executable)
+    if sys.platform == "win32" and python.with_name("pythonw.exe").exists():
+        python = python.with_name("pythonw.exe")    # pythonw: no console window
+    return [str(python), str(Path(__file__).resolve())]
+
+
+def load_folded(vault):
+    """Note paths that were folded last time (stored relative to the vault)."""
+    try:
+        return {vault / p for p in json.loads(STATE.read_text(encoding="utf-8")).get("folded", [])}
+    except (OSError, ValueError):
+        return set()
+
+
+def save_folded(vault, folded):
+    paths = sorted(p.relative_to(vault).as_posix() for p in folded if p.is_relative_to(vault))
+    try:
+        STATE.write_text(json.dumps({"folded": paths}, indent=1), encoding="utf-8")
+    except OSError as e:
+        log("Couldn't save folded notes:", e)
+
+
 def font(size, *styles, bold=False):
     """A Tk font tuple using the platform's UI font."""
     if bold and B.FONT_BOLD:
@@ -115,8 +149,10 @@ class App:
         self.target = None                  # the window the box belongs to: {id, app, title, pid, url}
         self.shown = None                   # what the box shows now; redraw when this changes
         self.size = (BOX_WIDTH, 50)         # box size in pixels, set by draw()
+        # Hidden (×) notes are tied to one open window, so they're forgotten on restart: a note
+        # that stayed hidden for good would look lost. Folding keeps the title visible, so it's saved.
         self.dismissed = set()              # (window id, note path) hidden with × this session
-        self.collapsed = set()              # note paths collapsed to their title
+        self.collapsed = load_folded(self.vault)   # note paths folded to their title
         self.toast_until = 0                # the start-up message stays until this time
         self.q = queue.Queue()              # messages from the Events thread
         self.urls = B.UrlReader(log) if B.SUPPORTS_URL else None
@@ -416,6 +452,7 @@ class App:
 
     def toggle_collapse(self, note):
         self.collapsed ^= {note["path"]}
+        save_folded(self.vault, self.collapsed)
         self.update_box()
 
     def dismiss(self, wid, note):
@@ -424,7 +461,7 @@ class App:
 
     def set_autostart(self):
         try:
-            B.set_autostart(self.autostart.get(), Path(__file__).resolve())
+            B.set_autostart(self.autostart.get(), launch_command())
         except OSError as e:
             log("Couldn't change start at login:", e)
         self.autostart.set(B.autostart_enabled())

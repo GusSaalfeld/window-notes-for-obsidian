@@ -1,0 +1,61 @@
+# Builds the downloadable programs when a version tag (like v0.3.0) is pushed,
+# and attaches them to a GitHub release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # needed to create the release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyinstaller comtypes
+      - run: python -m unittest
+      - name: Build WindowNotes.exe
+        run: pyinstaller --onefile --noconsole --name WindowNotes --collect-submodules comtypes window_notes.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/WindowNotes.exe
+
+  linux:
+    # Built on an older Ubuntu so the program also runs on older distributions.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyinstaller python-xlib
+      - run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+      - run: python -m unittest
+      - name: Build window-notes
+        run: |
+          pyinstaller --onefile --name window-notes window_notes.py
+          tar -czf window-notes-linux-x86_64.tar.gz -C dist window-notes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: window-notes-linux-x86_64.tar.gz
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Create the release with both downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --generate-notes \
+            --title "Window Notes ${{ github.ref_name }}" WindowNotes.exe window-notes-linux-x86_64.tar.gz

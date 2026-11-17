@@ -87,15 +87,22 @@ def open_target(target):
 AUTOSTART_FILE = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart" / "window-notes.desktop"
 
 
+def data_dir():
+    """Settings folder for the downloaded program: ~/.config/window-notes"""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "window-notes"
+
+
 def autostart_enabled():
     return AUTOSTART_FILE.exists()
 
 
-def set_autostart(on, script):
+def set_autostart(on, command):
+    """`command`: the program and its arguments, e.g. [python3, window_notes.py] or [./window-notes]."""
     if on:
         AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
+        exec_line = " ".join(f'"{part}"' for part in command)
         AUTOSTART_FILE.write_text("[Desktop Entry]\nType=Application\nName=Window Notes\n"
-                                  f'Exec="{sys.executable}" "{script}"\nX-GNOME-Autostart-enabled=true\n')
+                                  f"Exec={exec_line}\nX-GNOME-Autostart-enabled=true\n")
     elif AUTOSTART_FILE.exists():
         AUTOSTART_FILE.unlink()
 

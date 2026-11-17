@@ -1,9 +1,6 @@
 """Windows part of Window Notes: finding windows, the note box, hotkey and window events."""
 import ctypes
 import os
-import re
-import subprocess
-import sys
 import threading
 from ctypes import wintypes
 from pathlib import Path
@@ -97,14 +94,20 @@ def open_target(target):
     os.startfile(str(target))
 
 
+def data_dir():
+    """Settings folder for the downloaded .exe: %APPDATA%\\Window Notes"""
+    return Path(os.environ.get("APPDATA") or Path.home()) / "Window Notes"
+
+
 def autostart_enabled():
     return STARTUP_FILE.exists()
 
 
-def set_autostart(on, script):
+def set_autostart(on, command):
+    """`command`: the program and its arguments, e.g. [pythonw.exe, window_notes.py] or [WindowNotes.exe]."""
     if on:
-        pyw = Path(sys.executable).with_name("pythonw.exe")
-        STARTUP_FILE.write_text(f'@echo off\r\nstart "" "{pyw}" "{script}"\r\n', encoding="utf-8")
+        args = " ".join(f'"{part}"' for part in command)
+        STARTUP_FILE.write_text(f'@echo off\r\nstart "" {args}\r\n', encoding="utf-8")
     elif STARTUP_FILE.exists():
         STARTUP_FILE.unlink()
 

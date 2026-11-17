@@ -10,6 +10,7 @@ AUTOSTART_LABEL = "Start with Windows"
 FONT = "Segoe UI"
 FONT_BOLD = "Segoe UI Semibold"   # a real semibold face reads better than synthetic bold
 SUPPORTS_URL = True
+NOTICE = ""          # a message to log at start-up, if any
 
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # per-monitor v2
@@ -230,6 +231,9 @@ class Overlay:
 
     def is_own(self, win):
         return win["pid"] == os.getpid()
+
+    def after_click(self, win):
+        pass   # the box never takes focus here, so there's nothing to give back
 
 
 # ---- hotkey and window events (own thread, own message loop) ---------------

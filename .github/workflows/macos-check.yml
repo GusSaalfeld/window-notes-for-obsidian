@@ -1,0 +1,30 @@
+# Runs the macOS version on one of GitHub's Macs and saves screenshots.
+# Start it from the Actions tab ("Run workflow"), or it runs when a macOS file changes.
+name: macOS check
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ["backend_macos.py", "window_notes.py", "tests/macos_check.py"]
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+      - run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+      - name: Run the check
+        run: python tests/macos_check.py
+        timeout-minutes: 5
+        env:
+          OUT: mac-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-check
+          path: mac-check/

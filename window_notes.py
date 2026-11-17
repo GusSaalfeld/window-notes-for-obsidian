@@ -7,7 +7,8 @@ How the code is split:
     window_notes.py      settings, the note box (Tkinter) and the main loop   <- you are here
     notes.py             reading, matching and editing note files (no UI, no OS calls)
     backend_windows.py   everything that differs per operating system: which window is
-    backend_linux.py     active, where it is, window events, the hotkey, start at login
+    backend_linux.py     active, where it is, window events, the hotkey, start at login.
+    backend_macos.py     Each defines the same names; window_notes.py imports one as B.
 
 How it runs:
     - The backend's Events thread hears "the active window changed", "the watched window
@@ -28,10 +29,12 @@ import notes as N
 
 if sys.platform == "win32":
     import backend_windows as B
+elif sys.platform == "darwin":
+    import backend_macos as B
 elif sys.platform.startswith("linux"):
     import backend_linux as B
 else:
-    sys.exit("Window Notes runs on Windows and Linux for now.")
+    sys.exit(f"Window Notes doesn't run on {sys.platform} yet.")
 
 # Where settings, the log and saved state live. Run from source: next to this file.
 # Run as a downloaded program (built with PyInstaller): in the user's settings folder,
@@ -187,6 +190,8 @@ class App:
         self.ticks = 0
         self.root.after(QUEUE_MS, self.tick)
         log(f"Window Notes running on {B.NAME}. Notes folder: {self.dir}")
+        if B.NOTICE:
+            log(B.NOTICE)
         self.welcome()
 
     # -- colors: draw() switches these per note -------------------------------------
@@ -390,8 +395,15 @@ class App:
         lab = tk.Label(parent, text=text, bg=self.BG, fg=fg or self.FG, anchor="w", justify="left", **kw)
         if on_click:
             lab.configure(cursor="hand2")
-            lab.bind("<Button-1>", lambda e: on_click())
+            lab.bind("<Button-1>", lambda e: self.clicked(on_click))
         return lab
+
+    def clicked(self, action):
+        """Run a click action, then let the backend hand focus back to the window the
+        note belongs to (only needed on macOS, where clicking activates our app)."""
+        target = self.target
+        action()
+        self.overlay.after_click(target)
 
     # -- right-click menu -----------------------------------------------------------
     def bind_menu(self, widget, note=None):
@@ -421,7 +433,9 @@ class App:
         menu.add_separator()
         menu.add_command(label="Quit Window Notes", command=self.quit)
         self._menu = menu   # keep the menu and its Tk variables alive while it's open
+        target = self.target
         menu.tk_popup(event.x_root, event.y_root)
+        self.overlay.after_click(target)
 
     # -- actions ------------------------------------------------------------------
     def open_note(self, path):

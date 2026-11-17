@@ -219,6 +219,9 @@ class Overlay:
     def is_own(self, win):
         return win["pid"] == os.getpid()
 
+    def after_click(self, win):
+        pass   # override-redirect windows never take focus, so there's nothing to give back
+
 
 # ---- hotkey and window events (own thread, own X connection) ---------------
 class Events(threading.Thread):

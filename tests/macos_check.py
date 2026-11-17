@@ -100,11 +100,22 @@ if box:
     # instead, which is intended). At each step, measure where TextEdit really is rather than
     # trusting the requested position: macOS may adjust it.
     textedit_pid = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")[0].processIdentifier()
+    def settled():
+        """Both windows' bounds once they've stopped changing (up to 2 s). This checks where
+        the box ends up; how fast it gets there is measured by tests/integration.py."""
+        last, end = None, time.time() + 2
+        while time.time() < end:
+            now = (box_bounds(app.pid), box_bounds(textedit_pid))
+            if now == last and all(now):
+                return now
+            last = now
+            time.sleep(0.1)
+        return last or (None, None)
+
     gaps = []
     for i in range(1, 11):
         move_textedit(100 + i * 15, 100 + i * 10, w=500, h=400)
-        time.sleep(0.25)
-        b, t = box_bounds(app.pid), box_bounds(textedit_pid)
+        b, t = settled()
         if b and t:
             gaps.append((t[2] - b[2], b[1] - t[1]))     # (TextEdit's right edge - box's, box top - TextEdit top)
     results["gaps while TextEdit moves (right, top)"] = sorted(set(gaps))

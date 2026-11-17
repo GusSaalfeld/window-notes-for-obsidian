@@ -218,8 +218,14 @@ class App:
                 self.update_box()
         except Exception as e:   # one bad note or window mustn't stop the app
             log("Error:", repr(e), problem=True)
-        self.report()
-        self.root.after(QUEUE_MS, self.tick)
+        finally:
+            # Always schedule the next tick: if anything escaped, the loop would stop for good
+            # and the app would freeze with the box wherever it was.
+            self.root.after(QUEUE_MS, self.tick)
+            try:
+                self.report()
+            except OSError:      # e.g. Windows: the test is reading the file right now; try next tick
+                self._reported = None
 
     def report(self):
         """Test harness only (WN_TEST_STATE is set): write what the app believes it's showing,

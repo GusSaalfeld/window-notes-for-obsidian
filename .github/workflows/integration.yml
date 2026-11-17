@@ -33,6 +33,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Tk, python-xlib and a virtual X11 desktop
         run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-tk python3-xlib xvfb openbox xdotool
+      - name: Handle obsidian:// links silently (otherwise the browser opens and takes focus mid-test)
+        run: |
+          mkdir -p ~/.local/share/applications
+          {
+            echo "[Desktop Entry]"
+            echo "Type=Application"
+            echo "Name=No-op"
+            echo "Exec=true %u"
+            echo "MimeType=x-scheme-handler/obsidian;"
+          } > ~/.local/share/applications/obsidian-noop.desktop
+          xdg-mime default obsidian-noop.desktop x-scheme-handler/obsidian
+          xdg-mime query default x-scheme-handler/obsidian
       - name: Run on Xvfb + Openbox
         run: |
           Xvfb :99 -screen 0 1600x1000x24 & sleep 1

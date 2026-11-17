@@ -17,6 +17,13 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install comtypes
+      - name: Handle obsidian:// links silently (no Obsidian here; otherwise Windows pops up a "how do you want to open this?" dialog that steals focus mid-test)
+        shell: pwsh
+        run: |
+          $py = (Get-Command pythonw).Source
+          reg add HKCU\Software\Classes\obsidian /ve /d "URL:obsidian" /f
+          reg add HKCU\Software\Classes\obsidian /v "URL Protocol" /d "" /f
+          reg add HKCU\Software\Classes\obsidian\shell\open\command /ve /d "`"$py`" -c pass" /f
       - run: python tests/integration.py
 
   linux:

@@ -1,52 +1,67 @@
-<!doctype html>
-<html><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-  :root { --desk:#e6ebee; --ink:#1d232a; --soft:#5b6670; --line:#d5dce1; --note:#fff4b8; --note-ink:#28220a; --note-line:#d0c692; }
-  * { box-sizing:border-box; margin:0; }
-  body { width:1280px; height:640px; background:var(--desk); font-family:"IBM Plex Sans",sans-serif; color:var(--ink);
-         display:grid; grid-template-columns:470px 1fr; align-items:center; padding:0 64px 0 80px; overflow:hidden; }
-  h1 { font-size:58px; line-height:1.02; font-weight:600; letter-spacing:-1.5px; }
-  h1 span { display:block; font-weight:400; color:var(--soft); font-size:40px; letter-spacing:-0.5px; margin-top:8px; }
-  p { font-size:22px; line-height:1.4; color:var(--soft); margin-top:28px; max-width:350px; }
-  pre { font-family:"IBM Plex Mono",monospace; font-size:17px; line-height:1.55; margin-top:34px; padding:14px 18px;
-        background:#fff; border:1px solid var(--line); border-radius:8px; width:max-content; color:var(--ink); }
-  pre b { font-weight:500; color:#8a6d00; }
-  .win { position:relative; height:470px; background:#fff; border-radius:10px; border:1px solid #c9d1d7;
-         box-shadow:0 18px 40px rgba(29,35,42,.13); overflow:hidden; margin-left:20px; }
-  .bar { height:40px; border-bottom:1px solid var(--line); display:flex; align-items:center; padding:0 16px; font-size:15px; color:var(--soft); gap:14px; }
-  .dots { display:flex; gap:7px; margin-left:auto; } .dots i { width:12px; height:12px; border-radius:2px; border:1.5px solid #b4bec6; display:block; }
-  .grid { position:absolute; inset:40px 0 0 0;
-          background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
-          background-size:160px 30px; background-position:39px -1px; }
-  .grid::before { content:""; position:absolute; left:0; top:0; width:44px; height:100%; background:#f3f6f8; border-right:1px solid var(--line); }
-  .cells { position:absolute; top:40px; left:56px; font-size:14px; color:#7a858e; line-height:30px; }
-  .note { position:absolute; top:56px; right:16px; width:300px; background:var(--note); border:1px solid var(--note-line);
-          padding:12px 16px 14px; color:var(--note-ink); font-size:15px; box-shadow:0 8px 22px rgba(60,50,0,.16); }
-  .note h2 { font-size:16px; font-weight:600; display:flex; align-items:center; gap:6px; }
-  .note h2 em { margin-left:auto; font-style:normal; font-weight:400; font-size:13px; color:#736c47; text-decoration:underline; }
-  .note h2 em + em { margin-left:12px; text-decoration:none; font-size:16px; }
-  .note div { margin-top:7px; line-height:1.45; }
-  .note .done { color:#9e966a; text-decoration:line-through; }
-</style></head>
-<body>
-  <section>
-    <h1>Window Notes<span>for Obsidian</span></h1>
-    <p>A note appears on the window it belongs to and hides when you switch away.</p>
-    <pre>---
-<b>attach-title:</b> "*Budget*"
----</pre>
-  </section>
-  <div class="win">
-    <div class="bar">Budget 2026.xlsx<div class="dots"><i></i><i></i><i></i></div></div>
-    <div class="grid"></div>
-    <div class="cells">Rent<br>Groceries<br>Transport<br>Phone<br>Savings<br>Gifts<br>Subscriptions<br>Repairs<br>Travel<br>Other</div>
-    <div class="note">
-      <h2>▾ Budget<em>Edit</em><em>×</em></h2>
-      <div>Check the bank export first.</div>
-      <div class="done">☑&nbsp; Move rent to the 1st</div>
-      <div>☐&nbsp; Cancel the gym subscription</div>
-      <div>☐&nbsp; Ask about the phone plan</div>
-    </div>
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0}
+body{width:1120px;height:625px;background:#e6e9ec;font-family:"Inter",sans-serif;display:flex;align-items:center}
+.wrap{margin-left:78px;width:380px;flex:none}
+h1{margin:0;font-size:46px;font-weight:700;color:#1f2328;letter-spacing:-0.5px;line-height:1.1}
+h2{margin:2px 0 0;font-size:33px;font-weight:400;color:#5c6670;line-height:1.2}
+p{margin:30px 0 0;font-size:19px;line-height:1.55;color:#5c6670;width:330px}
+.card{margin-top:26px;background:#fff;border:1px solid #d7dce1;border-radius:9px;padding:16px 20px;display:inline-block;
+  font-family:"DejaVu Sans Mono",monospace;font-size:14.5px;line-height:1.7;color:#24292f;white-space:pre}
+.dim{color:#8c959f}.key{color:#8a6d00;font-weight:700}.h{font-weight:700}.link{color:#7c4dde}
+
+/* the example: a spreadsheet window with the note pinned in its top-right corner */
+.win{position:relative;margin-left:62px;width:540px;height:430px;background:#fff;border:1px solid #c9ced4;border-radius:9px;
+  box-shadow:0 18px 40px rgba(31,35,40,.16);overflow:hidden;font-family:"Segoe UI",system-ui,sans-serif;flex:none}
+.bar{height:34px;background:#f3f4f6;border-bottom:1px solid #dde1e5;display:flex;align-items:center;padding:0 14px;
+  font-size:13px;color:#3b434b}
+.bar .btns{margin-left:auto;letter-spacing:14px;color:#8c959f;font-size:12px}
+table{border-collapse:collapse;font-size:13px;color:#3b434b;width:100%}
+td{border:1px solid #e3e6ea;height:27px;padding:0 8px;white-space:nowrap}
+td.n{text-align:right}
+tr:first-child td{background:#f6f7f9;font-weight:600}
+td.rh{width:22px;background:#f6f7f9;color:#8c959f;text-align:center;padding:0}
+/* the note, drawn like the real one: palette "yellow" from notes.py */
+.note{position:absolute;top:50px;right:16px;width:228px;background:#fff4b8;border:1px solid #d0c692;
+  font-family:"Segoe UI",system-ui,sans-serif;color:#28220a;padding:8px 11px 10px;box-shadow:0 4px 14px rgba(40,34,10,.18)}
+.note .head{display:flex;align-items:baseline;font-size:13.5px;font-weight:700}
+.note .head .edit{margin-left:auto;font-size:12px;font-weight:400;color:#736c47;text-decoration:underline}
+.note .head .x{margin-left:9px;font-size:16px;font-weight:400;color:#736c47;line-height:1}
+.note .body{margin-top:5px;font-size:12.5px;line-height:1.6}
+.note .u{text-decoration:underline}
+</style></head><body><div class="wrap">
+<h1>Window Notes</h1>
+<h2>for Obsidian</h2>
+<p>Pin a note to any window. It appears when you open that window and disappears when you switch away.</p>
+<div class="card"><span class="dim">---</span>
+<span class="key">attach-app:</span> "excel"
+<span class="key">attach-title:</span> "*Budget*"
+<span class="dim">---</span>
+<span class="h"># Budget checklist</span>
+- [ ] Check last month's totals
+See <span class="link">[[Yearly budget]]</span></div>
+</div>
+<div class="win">
+  <div class="bar">Budget 2026.xlsx<span class="btns">–□×</span></div>
+  <table>
+    <tr><td class="rh"></td><td>Month</td><td>Category</td><td class="n">Planned</td><td class="n">Spent</td></tr>
+    <tr><td class="rh">1</td><td>October</td><td>Rent</td><td class="n">1,200</td><td class="n">1,200</td></tr>
+    <tr><td class="rh">2</td><td>October</td><td>Groceries</td><td class="n">400</td><td class="n">436</td></tr>
+    <tr><td class="rh">3</td><td>October</td><td>Transport</td><td class="n">120</td><td class="n">95</td></tr>
+    <tr><td class="rh">4</td><td>October</td><td>Utilities</td><td class="n">150</td><td class="n">142</td></tr>
+    <tr><td class="rh">5</td><td>October</td><td>Eating out</td><td class="n">100</td><td class="n">131</td></tr>
+    <tr><td class="rh">6</td><td>November</td><td>Rent</td><td class="n">1,200</td><td class="n">1,200</td></tr>
+    <tr><td class="rh">7</td><td>November</td><td>Groceries</td><td class="n">400</td><td class="n">212</td></tr>
+    <tr><td class="rh">8</td><td>November</td><td>Transport</td><td class="n">120</td><td class="n">60</td></tr>
+    <tr><td class="rh">9</td><td>November</td><td>Utilities</td><td class="n">150</td><td class="n"></td></tr>
+    <tr><td class="rh">10</td><td>November</td><td>Eating out</td><td class="n">100</td><td class="n">48</td></tr>
+    <tr><td class="rh">11</td><td></td><td></td><td class="n"></td><td class="n"></td></tr>
+    <tr><td class="rh">12</td><td></td><td></td><td class="n"></td><td class="n"></td></tr>
+    <tr><td class="rh">13</td><td></td><td></td><td class="n"></td><td class="n"></td></tr>
+  </table>
+  <div class="note">
+    <div class="head">▾ Budget<span class="edit">Edit</span><span class="x">×</span></div>
+    <div class="body"><b>Budget checklist</b><br>☐&nbsp; Check last month's totals<br><span class="u">See Yearly budget</span></div>
   </div>
+</div>
 </body></html>

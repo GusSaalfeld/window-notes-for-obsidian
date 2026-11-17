@@ -89,6 +89,14 @@ def showing():
     return s.get("showing") and visible(s["box_id"])
 
 
+def why():
+    """What the app reports and what the system says, for failure messages."""
+    s = state()
+    return (f"app says showing={s.get('showing')} target={s.get('target')!r} notes={s.get('notes')} "
+            f"errors={s.get('errors', [])[-2:]}; on screen={visible(s['box_id']) if s else '?'}; "
+            f"front window={(B.foreground() or {}).get('title')!r}")
+
+
 def hidden():
     s = state()
     return s and not s.get("showing") and not visible(s["box_id"])
@@ -235,7 +243,7 @@ def _():
 def _():
     worst = 0
     for i in range(1, 16):
-        target.do(f"move {150 + i * 15} {120 + i * 6}")
+        target.do(f"move {150 + i * 6} {120 + i * 4}")
         time.sleep(0.15)
         worst = max(worst, offset_error(target))
     return f"worst offset {worst}px over 15 moves" if worst <= 3 else f"FAIL: worst offset {worst}px"
@@ -311,6 +319,7 @@ def _():
 
 @scenario("damaged files in the notes folder are skipped")
 def _():
+    target.do("activate")
     time.sleep(2)                    # let any message from the previous step (opening Obsidian) arrive
     errors = state()["error_count"]
     (NOTES / "binary.md").write_bytes(b"\x00\xff\x89PNG garbage")
@@ -322,11 +331,12 @@ def _():
     new = s["errors"][len(s["errors"]) - (s["error_count"] - errors):] if s["error_count"] > errors else []
     if new:
         return f"FAIL: errors logged: {new}"
-    return "skipped quietly" if showing() and s["notes"] == ["Target note"] else f"FAIL: state {s}"
+    return "skipped quietly" if showing() and s["notes"] == ["Target note"] else f"FAIL: {why()}"
 
 
 @scenario("too many notes still fit on screen")
 def _():
+    target.do("activate")
     for i in range(12):
         (NOTES / f"Many {i:02}.md").write_text('---\nattach-title: "WN Target*"\n---\n'
                                                + "\n".join(f"- [ ] task {j}" for j in range(20)), encoding="utf-8")
@@ -342,21 +352,23 @@ def _():
 
 @scenario("deleting the note hides it")
 def _():
+    target.do("activate")
     wait_for(lambda: len(state()["notes"]) == 1, timeout=5)
     TARGET_NOTE.unlink()
-    return "hidden" if wait_for(hidden, timeout=5) else "FAIL: still showing a deleted note"
+    return "hidden" if wait_for(hidden, timeout=5) else f"FAIL: still showing a deleted note: {why()}"
 
 
 @scenario("notes folder deleted and recreated while running")
 def _():
+    target.do("activate")
     TARGET_NOTE.write_text(TARGET_TEXT, encoding="utf-8")
     wait_for(showing, timeout=5)
     shutil.rmtree(NOTES)
     if not wait_for(hidden, timeout=5):
-        return "FAIL: still showing after the folder was deleted"
+        return f"FAIL: still showing after the folder was deleted: {why()}"
     NOTES.mkdir()
     TARGET_NOTE.write_text(TARGET_TEXT, encoding="utf-8")
-    return "recovered" if wait_for(showing, timeout=6) else "FAIL: didn't pick the note up again"
+    return "recovered" if wait_for(showing, timeout=6) else f"FAIL: didn't pick the note up again: {why()}"
 
 
 @scenario("closing the window hides the note")

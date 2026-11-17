@@ -233,7 +233,11 @@ class Overlay:
         return win["pid"] == os.getpid()
 
     def after_click(self, win):
-        pass   # the box never takes focus here, so there's nothing to give back
+        """The box is marked "never activate", but Tk activates its window on mouse-down anyway
+        when Windows allows it. If the box ended up with the keyboard, give it back."""
+        front = user32.GetForegroundWindow()
+        if win and front and _pid(front) == os.getpid():
+            user32.SetForegroundWindow(win["id"])     # allowed: we're the foreground app right now
 
 
 # ---- hotkey and window events (own thread, own message loop) ---------------

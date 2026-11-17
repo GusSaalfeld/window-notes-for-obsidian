@@ -96,15 +96,19 @@ if not box:
     dump_windows()
 
 if box:
-    gaps = set()
-    for i in range(1, 11):                      # move TextEdit in steps; the box should keep its offset
-        x, y = 100 + i * 25, 100 + i * 10
-        move_textedit(x, y)
+    # Move TextEdit in steps, staying fully on screen (near an edge the box is kept on screen
+    # instead, which is intended). At each step, measure where TextEdit really is rather than
+    # trusting the requested position: macOS may adjust it.
+    textedit_pid = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")[0].processIdentifier()
+    gaps = []
+    for i in range(1, 11):
+        move_textedit(100 + i * 15, 100 + i * 10, w=500, h=400)
         time.sleep(0.25)
-        b = box_bounds(app.pid)
-        if b:
-            gaps.add((x + 800 - b[2], b[1] - y))
-    results["box keeps its place while TextEdit moves (gap right, gap top)"] = sorted(gaps)
+        b, t = box_bounds(app.pid), box_bounds(textedit_pid)
+        if b and t:
+            gaps.append((t[2] - b[2], b[1] - t[1]))     # (TextEdit's right edge - box's, box top - TextEdit top)
+    results["gaps while TextEdit moves (right, top)"] = sorted(set(gaps))
+    results["box follows TextEdit"] = len(gaps) == 10 and len(set(gaps)) == 1
     shot("2-after-moving")
 
     activate("Finder")

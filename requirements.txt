@@ -1,2 +1,5 @@
-# Optional: needed only for attach-url (reading browser address bars)
-comtypes>=1.4
+# Windows, optional: lets notes attach to websites (attach-url) by reading the browser's address bar
+comtypes>=1.4; sys_platform == "win32"
+
+# Linux, required: talks to the X11 desktop (on Ubuntu/Debian you can use: sudo apt install python3-xlib)
+python-xlib>=0.33; sys_platform == "linux"

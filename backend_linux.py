@@ -79,9 +79,16 @@ def message(text):
 
 
 def open_target(target):
-    """Open a file, folder, web address or obsidian:// link with its default app."""
-    if shutil.which("xdg-open"):
-        subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Open a file, folder, web address or obsidian:// link with its default app.
+    Raises OSError if that can't be done, so the app can say so."""
+    if not shutil.which("xdg-open"):
+        raise OSError("xdg-open isn't installed (it comes with the xdg-utils package)")
+    proc = subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:   # xdg-open fails within a moment when nothing handles the link; when it works it may keep running
+        if proc.wait(timeout=1.5) not in (0, None):
+            raise OSError(proc.stderr.read().decode(errors="replace").strip() or "no app can open this")
+    except subprocess.TimeoutExpired:
+        pass
 
 
 AUTOSTART_FILE = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart" / "window-notes.desktop"
@@ -202,6 +209,7 @@ class Overlay:
         self.window = _win(int(root.wm_frame(), 16))
         while (parent := self.window.query_tree().parent) and parent != _root:
             self.window = parent
+        self.id = self.window.id                           # what rect() etc. accept
 
     def show(self):
         self.window.map()
@@ -249,10 +257,8 @@ class Events(threading.Thread):
         while not self.stopped:
             if self.want != client:
                 for w in watched:
-                    try:
-                        w.change_attributes(event_mask=X.NoEventMask)
-                    except error.XError:
-                        pass
+                    # the window may be gone by now; CatchError keeps X from printing that as an error
+                    w.change_attributes(event_mask=X.NoEventMask, onerror=error.CatchError())
                 client = self.want
                 watched = self._watch(d, client) if client else []
             # wait up to 0.1 s for X events, then loop (to notice watch() and stop())
@@ -285,8 +291,9 @@ class Events(threading.Thread):
         """Listen for moves on the window and on the frame the window manager wraps it in
         (dragging moves the frame; not every window manager tells the window itself)."""
         windows, w = [], d.create_resource_object("window", wid)
+        quiet = error.CatchError()              # the window can close at any moment; don't print that
         try:
-            w.change_attributes(event_mask=X.StructureNotifyMask | X.PropertyChangeMask)
+            w.change_attributes(event_mask=X.StructureNotifyMask | X.PropertyChangeMask, onerror=quiet)
             windows.append(w)
             root = d.screen().root
             while True:                         # climb to the top-level frame
@@ -295,7 +302,7 @@ class Events(threading.Thread):
                     break
                 w = parent
             if w.id != wid:
-                w.change_attributes(event_mask=X.StructureNotifyMask)
+                w.change_attributes(event_mask=X.StructureNotifyMask, onerror=quiet)
                 windows.append(w)
         except error.XError:
             pass

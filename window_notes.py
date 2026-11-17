@@ -26,6 +26,7 @@ import tkinter as tk
 from pathlib import Path
 
 import notes as N
+import settings as S
 
 if sys.platform == "win32":
     import backend_windows as B
@@ -41,7 +42,7 @@ else:
 # because the program itself may sit somewhere read-only like Program Files.
 FROZEN = getattr(sys, "frozen", False)
 HERE = Path(__file__).resolve().parent
-DATA = B.data_dir() if FROZEN else HERE
+DATA = Path(os.environ["WN_DATA"]) if os.environ.get("WN_DATA") else B.data_dir() if FROZEN else HERE  # WN_DATA: tests
 DATA.mkdir(parents=True, exist_ok=True)
 CONFIG = DATA / "config.toml"
 STATE = DATA / "state.json"     # remembers which notes are folded
@@ -56,55 +57,60 @@ MAX_BODY_LINES = 20    # longer notes get a "N more lines" link
 # ---- logging: pythonw has no console, so messages go to a file ---------------
 if sys.stdout is None or sys.stderr is None:
     sys.stdout = sys.stderr = open(DATA / "window-notes.log", "a", encoding="utf-8", buffering=1)
+ERRORS = []     # problems logged this run (reported to the test harness)
 
 
-def log(*parts):
-    print(time.strftime("%H:%M:%S"), *parts, flush=True)
+def log(*parts, problem=False):
+    text = " ".join(str(p) for p in parts)
+    if problem:
+        ERRORS.append(text)
+    print(time.strftime("%H:%M:%S"), text, flush=True)
 
 
-# ---- settings (config.toml next to this file) ----------------------------------
+# ---- settings --------------------------------------------------------------------
+def ask_for_vault(reason=""):
+    """Folder picker for the vault; returns a Path, or None if cancelled."""
+    from tkinter import filedialog, messagebox
+    picker = tk.Tk()
+    picker.withdraw()
+    if reason:
+        messagebox.showinfo("Window Notes", reason, parent=picker)
+    chosen = filedialog.askdirectory(title="Window Notes: choose your Obsidian vault (or any notes folder)",
+                                     parent=picker)
+    picker.destroy()
+    return Path(chosen) if chosen else None
+
+
 def load_config():
-    """Returns the settings dict. On first run, asks for the vault folder and saves it.
-    Environment variables WN_VAULT and WN_FOLDER override the file (handy for testing)."""
-    cfg = {}
-    if CONFIG.exists():
-        import tomllib
-        with open(CONFIG, "rb") as f:
-            cfg = tomllib.load(f)
-    if not (os.environ.get("WN_VAULT") or cfg.get("vault")):
-        from tkinter import filedialog
-        picker = tk.Tk()
-        picker.withdraw()
-        vault = filedialog.askdirectory(title="Window Notes: choose your Obsidian vault (or any notes folder)")
-        picker.destroy()
-        if not vault:
+    """Settings from config.toml (see settings.py), with WN_VAULT / WN_FOLDER from the
+    environment winning (handy for testing). Asks for the vault on first run, or when the
+    saved vault folder no longer exists, rather than quietly creating an empty one."""
+    cfg, problems = S.read_config(CONFIG)
+    for p in problems:
+        log(p, problem=True)
+    if os.environ.get("WN_VAULT"):
+        cfg["vault"] = os.environ["WN_VAULT"]
+    if os.environ.get("WN_FOLDER"):
+        cfg["folder"] = os.environ["WN_FOLDER"]
+
+    vault = Path(cfg["vault"]) if cfg["vault"] else None
+    if vault is None or not vault.is_dir():
+        if os.environ.get("WN_VAULT"):          # tests and scripts: fail clearly, never prompt
+            sys.exit(f"WN_VAULT folder doesn't exist: {vault}")
+        reason = "" if vault is None else f"Your notes folder wasn't found:\n{vault}\n\nPlease choose it again."
+        vault = ask_for_vault(reason)
+        if vault is None:
             sys.exit("No notes folder chosen.")
-        save_config_value("vault", vault)
-        cfg["vault"] = vault
-    try:
-        opacity = min(1.0, max(0.2, float(cfg.get("opacity", 1.0))))
-    except (TypeError, ValueError):
-        opacity = 1.0
-    return {
-        "vault": Path(os.environ.get("WN_VAULT") or cfg["vault"]),
-        "folder": os.environ.get("WN_FOLDER") or cfg.get("folder", "Window notes"),
-        "hotkey": (str(cfg.get("hotkey") or "N")).upper()[:1],
-        "opacity": opacity,
-    }
+        save_config_value("vault", str(vault))
+    cfg["vault"] = vault
+    return cfg
 
 
 def save_config_value(key, value):
-    """Set one `key = value` line in config.toml, keeping comments and other lines.
-    json.dumps gives a valid TOML string or number (it handles quotes and backslashes)."""
-    lines = CONFIG.read_text(encoding="utf-8").splitlines() if CONFIG.exists() else ["# Window Notes settings"]
-    new = f"{key} = {json.dumps(value)}"
-    for i, line in enumerate(lines):
-        if line.split("=")[0].strip() == key:
-            lines[i] = new
-            break
-    else:
-        lines.append(new)
-    CONFIG.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        S.save_value(CONFIG, key, value)
+    except OSError as e:
+        log(f"Couldn't save {key} to {CONFIG}:", e, problem=True)
 
 
 def launch_command():
@@ -116,22 +122,6 @@ def launch_command():
     if sys.platform == "win32" and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")    # pythonw: no console window
     return [str(python), str(Path(__file__).resolve())]
-
-
-def load_folded(vault):
-    """Note paths that were folded last time (stored relative to the vault)."""
-    try:
-        return {vault / p for p in json.loads(STATE.read_text(encoding="utf-8")).get("folded", [])}
-    except (OSError, ValueError):
-        return set()
-
-
-def save_folded(vault, folded):
-    paths = sorted(p.relative_to(vault).as_posix() for p in folded if p.is_relative_to(vault))
-    try:
-        STATE.write_text(json.dumps({"folded": paths}, indent=1), encoding="utf-8")
-    except OSError as e:
-        log("Couldn't save folded notes:", e)
 
 
 def font(size, *styles, bold=False):
@@ -146,7 +136,11 @@ class App:
     def __init__(self, cfg):
         self.vault, self.hotkey, self.opacity = cfg["vault"], cfg["hotkey"], cfg["opacity"]
         self.dir = self.vault / cfg["folder"]
-        self.dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.dir.mkdir(exist_ok=True)       # only the notes folder; the vault itself must exist
+        except OSError as e:
+            log(f"Couldn't create {self.dir}:", e, problem=True)
+        self.report_path = os.environ.get("WN_TEST_STATE")   # test harness only: where to report state
 
         self.notes, self.stamp = [], None   # parsed notes, and file names + times they came from
         self.target = None                  # the window the box belongs to: {id, app, title, pid, url}
@@ -155,7 +149,7 @@ class App:
         # Hidden (×) notes are tied to one open window, so they're forgotten on restart: a note
         # that stayed hidden for good would look lost. Folding keeps the title visible, so it's saved.
         self.dismissed = set()              # (window id, note path) hidden with × this session
-        self.collapsed = load_folded(self.vault)   # note paths folded to their title
+        self.collapsed = S.load_folded(STATE, self.vault)   # note paths folded to their title
         self.toast_until = 0                # the start-up message stays until this time
         self.q = queue.Queue()              # messages from the Events thread
         self.urls = B.UrlReader(log) if B.SUPPORTS_URL else None
@@ -210,7 +204,8 @@ class App:
                 elif msg == "new-note":
                     self.new_note()
                 elif msg == "hotkey-failed":
-                    log(f"Ctrl+Alt+{self.hotkey} is already used by another app; the new-note hotkey is off.")
+                    log(f"Ctrl+Alt+{self.hotkey} is already used by another app; the new-note hotkey is off.",
+                        problem=True)
             self.ticks += 1
             if self.ticks % (POLL_MS // QUEUE_MS) == 0:
                 update = True
@@ -219,8 +214,35 @@ class App:
             if update:
                 self.update_box()
         except Exception as e:   # one bad note or window mustn't stop the app
-            log("Error:", repr(e))
+            log("Error:", repr(e), problem=True)
+        self.report()
         self.root.after(QUEUE_MS, self.tick)
+
+    def report(self):
+        """Test harness only (WN_TEST_STATE is set): write what the app believes it's showing,
+        so a test can compare it with what's really on screen."""
+        if not self.report_path:
+            return
+        # positions relative to the box (winfo_x/y add up the offsets inside it); they're only
+        # right once Tk has laid the labels out, so a change in them also triggers a new report
+        clickable = []
+        for lab, kind, line in getattr(self, "clickables", []):
+            if lab.winfo_exists():
+                x, y, w = lab.winfo_x(), lab.winfo_y(), lab.master
+                while w is not self.root:
+                    x, y, w = x + w.winfo_x(), y + w.winfo_y(), w.master
+                clickable.append({"kind": kind, "line": line, "x": x, "y": y,
+                                  "w": lab.winfo_width(), "h": lab.winfo_height()})
+        key = (str(self.shown), len(ERRORS), json.dumps(clickable))
+        if getattr(self, "_reported", None) == key:
+            return
+        self._reported = key
+        state = {"box_id": self.overlay.id, "showing": self.shown is not None and self.shown != "welcome",
+                 "target": self.target and self.target["title"], "notes": getattr(self, "drawn", []),
+                 "size": self.size, "clickable": clickable, "errors": ERRORS[-10:], "error_count": len(ERRORS)}
+        tmp = Path(self.report_path + ".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        os.replace(tmp, self.report_path)        # atomic: the test never reads half a file
 
     def on_moved(self, wid):
         """Events thread: the watched window moved or was minimized. Only OS calls here,
@@ -269,7 +291,9 @@ class App:
             return self.hide()
         key = (win["id"], [n["path"] for n in hits], self.stamp, sorted(map(str, self.collapsed)))
         if key != self.shown:
-            self.draw(hits, B.scale(win["id"]))
+            s = B.scale(win["id"])
+            _, top, _, bottom = B.work_area(win["id"])
+            self.draw(hits, s, max_height=bottom - top - int(16 * s))
             self.shown = key
         self.overlay.move(*self.position(win))
         self.overlay.show()
@@ -306,19 +330,21 @@ class App:
         self.size = (width + 2, self.root.winfo_reqheight())
         self.root.geometry(f"{self.size[0]}x{self.size[1]}")
 
-    def welcome(self, seconds=4):
-        """A short "running" message in the bottom-right corner of the screen."""
+    def welcome(self):
+        n = len(self.notes)
+        self.toast("Window Notes is running", f"{n} attached note{'' if n == 1 else 's'}. "
+                   f"Press Ctrl+Alt+{self.hotkey} in any window to attach one.")
+
+    def toast(self, title, text, seconds=4):
+        """A short message in the bottom-right corner of the screen. Used instead of a dialog
+        box, which would take focus and stop the app until someone clicked it."""
         s = B.scale()
         width = int(BOX_WIDTH * s)
         self.clear()
         card = tk.Frame(self.box, bg=self.BG, padx=12, pady=9)
         card.pack(fill="x")
-        n = len(self.notes)
-        tk.Label(card, text="Window Notes is running", bg=self.BG, fg=self.FG,
-                 font=font(10, bold=True), anchor="w").pack(fill="x")
-        tk.Label(card, text=f"{n} attached note{'' if n == 1 else 's'}. "
-                            f"Press Ctrl+Alt+{self.hotkey} in any window to attach one.",
-                 bg=self.BG, fg=self.MUTED, font=font(9), anchor="w", justify="left",
+        tk.Label(card, text=title, bg=self.BG, fg=self.FG, font=font(10, bold=True), anchor="w").pack(fill="x")
+        tk.Label(card, text=text, bg=self.BG, fg=self.MUTED, font=font(9), anchor="w", justify="left",
                  wraplength=width - 24).pack(fill="x", pady=(2, 0))
         self.fit(width)
         _, _, sr, sb = B.work_area()
@@ -328,17 +354,29 @@ class App:
         self.shown = "welcome"
         self.toast_until = time.time() + seconds
 
-    def draw(self, hits, s):
-        """Build the box for these notes. `s` is the display scale (1.0 = 100%)."""
+    def draw(self, hits, s, max_height=10**6):
+        """Build the box for these notes. `s` is the display scale (1.0 = 100%). If it comes
+        out taller than `max_height`, the bottom notes are folded (on screen only) until it fits,
+        so no note ends up off the bottom of the screen."""
+        squeezed = set()
+        while True:
+            self._draw(hits, s, squeezed)
+            still_open = [n["path"] for n in hits if n["path"] not in self.collapsed | squeezed]
+            if self.size[1] <= max_height or not still_open:
+                return
+            squeezed.add(still_open[-1])
+
+    def _draw(self, hits, s, squeezed):
         width = int(BOX_WIDTH * s)
         self.clear(hits[0]["color"])
+        self.clickables, self.drawn = [], [n["name"] for n in hits]   # for the test report
         for i, note in enumerate(hits):
             self.use_palette(note["color"])
             if i:
                 tk.Frame(self.box, bg=self.BORDER, height=1).pack(fill="x")
             card = tk.Frame(self.box, bg=self.BG, padx=10, pady=7)
             card.pack(fill="x")
-            is_open = note["path"] not in self.collapsed
+            is_open = note["path"] not in self.collapsed | squeezed
 
             # header: ▾ title ............ Edit  ×
             head = tk.Frame(card, bg=self.BG)
@@ -348,8 +386,10 @@ class App:
                        ).pack(side="left", fill="x", expand=True)
             self.label(head, "×", fg=self.MUTED, font=font(12),
                        on_click=lambda n=note, w=self.target["id"]: self.dismiss(w, n)).pack(side="right")
-            self.label(head, "Edit", fg=self.MUTED, font=font(9, "underline"),
-                       on_click=lambda n=note: self.open_note(n["path"])).pack(side="right", padx=(0, 8))
+            edit = self.label(head, "Edit", fg=self.MUTED, font=font(9, "underline"),
+                              on_click=lambda n=note: self.open_note(n["path"]))
+            edit.pack(side="right", padx=(0, 8))
+            self.clickables.append((edit, "edit", None))
 
             if is_open:
                 self.draw_body(card, note, width - 20)
@@ -370,7 +410,7 @@ class App:
             link = N.first_link(text) if kind != "checkbox" else None
             if kind == "checkbox":          # click to tick; saved to the file
                 opts.update(text=("☑  " if extra else "☐  ") + N.plain(text),
-                            on_click=lambda ln=lineno: self.check(note, ln))
+                            on_click=lambda ln=lineno, shown=line: self.check(note, ln, shown))
                 if extra:
                     opts.update(fg=self.DONE, font=font(9, "overstrike"))
             elif kind == "heading":
@@ -382,7 +422,10 @@ class App:
             if link:                        # click opens [[note]] in Obsidian, web links in the browser
                 opts.update(on_click=lambda l=link: self.open_link(*l))
                 opts["font"] = opts["font"] + ("underline",)
-            self.label(body, **opts).pack(fill="x", padx=(indent, 0))
+            lab = self.label(body, **opts)
+            lab.pack(fill="x", padx=(indent, 0))
+            if kind == "checkbox":
+                self.clickables.append((lab, "checkbox", lineno))
 
         hidden = len(note["lines"]) - MAX_BODY_LINES
         if hidden > 0:
@@ -402,7 +445,10 @@ class App:
         """Run a click action, then let the backend hand focus back to the window the
         note belongs to (only needed on macOS, where clicking activates our app)."""
         target = self.target
-        action()
+        try:
+            action()
+        except Exception as e:      # Tk would print this to a console nobody sees
+            log("Error:", repr(e), problem=True)
         self.overlay.after_click(target)
 
     # -- right-click menu -----------------------------------------------------------
@@ -427,7 +473,7 @@ class App:
                                    variable=self._opacity, command=lambda p=pct: self.set_opacity(p / 100))
         menu.add_cascade(label="Opacity (all notes)", menu=levels)
         menu.add_separator()
-        menu.add_command(label="Open notes folder", command=lambda: B.open_target(self.dir))
+        menu.add_command(label="Open notes folder", command=lambda: self.open(self.dir, "the notes folder"))
         menu.add_command(label="Reload notes", command=lambda: self.rescan(force=True))
         menu.add_checkbutton(label=B.AUTOSTART_LABEL, variable=self.autostart, command=self.set_autostart)
         menu.add_separator()
@@ -438,23 +484,36 @@ class App:
         self.overlay.after_click(target)
 
     # -- actions ------------------------------------------------------------------
+    def open(self, target, what):
+        """Open a link or the notes folder; say so in a toast if nothing can open it
+        (for example obsidian:// links when Obsidian isn't installed)."""
+        try:
+            B.open_target(target)
+        except OSError as e:
+            log(f"Couldn't open {target}:", e, problem=True)
+            self.toast(f"Couldn't open {what}", "Is Obsidian installed? Window Notes opens notes with "
+                       "obsidian:// links." if str(target).startswith("obsidian:") else str(e))
+
     def open_note(self, path):
-        B.open_target(N.obsidian_uri(self.vault.name, path.relative_to(self.vault).with_suffix("").as_posix()))
+        self.open(N.obsidian_uri(self.vault.name, path.relative_to(self.vault).with_suffix("").as_posix()),
+                  "the note")
 
     def open_link(self, kind, target):
-        B.open_target(target if kind == "url" else N.obsidian_uri(self.vault.name, target))
+        self.open(target if kind == "url" else N.obsidian_uri(self.vault.name, target), "the link")
 
     def edit_file(self, change, what):
         """Run a file change, then redraw from the saved file."""
         try:
-            change()
+            if change() is False:
+                log(f"The note changed on disk, so the {what} wasn't saved. Showing the new version.")
         except OSError as e:
-            log(f"Couldn't save the {what}:", e)
+            log(f"Couldn't save the {what}:", e, problem=True)
+            self.toast(f"Couldn't save the {what}", str(e))
         self.rescan(force=True)
         self.update_box()
 
-    def check(self, note, lineno):
-        self.edit_file(lambda: N.toggle_checkbox(note["path"], lineno), "checkbox")
+    def check(self, note, lineno, shown):
+        self.edit_file(lambda: N.toggle_checkbox(note["path"], lineno, expected=shown), "checkbox")
 
     def set_color(self, note, name):
         self.edit_file(lambda: N.set_property(note["path"], "note-color", "" if name == "yellow" else name), "color")
@@ -466,7 +525,10 @@ class App:
 
     def toggle_collapse(self, note):
         self.collapsed ^= {note["path"]}
-        save_folded(self.vault, self.collapsed)
+        try:
+            S.save_folded(STATE, self.vault, self.collapsed)
+        except OSError as e:
+            log("Couldn't save folded notes:", e, problem=True)
         self.update_box()
 
     def dismiss(self, wid, note):
@@ -489,7 +551,12 @@ class App:
         path, i = self.dir / f"{name}.md", 2
         while path.exists():
             path, i = self.dir / f"{name} {i}.md", i + 1
-        path.write_text(N.new_note_text(win), encoding="utf-8")
+        try:
+            self.dir.mkdir(exist_ok=True)       # in case it was deleted while running
+            path.write_text(N.new_note_text(win), encoding="utf-8")
+        except OSError as e:
+            log("Couldn't create the note:", e, problem=True)
+            return self.toast("Couldn't create the note", str(e))
         log(f"New note: {path.name}")
         self.rescan(force=True)
         self.open_note(path)
@@ -502,8 +569,9 @@ class App:
 def main():
     if not B.single_instance():
         log("Window Notes is already running.")
-        B.message("Window Notes is already running.\n\nNotes appear on the windows they're attached to. "
-                  "Press Ctrl+Alt+N in any window to attach one. Right-click a note to quit.")
+        if not os.environ.get("WN_TEST_STATE"):     # a dialog would block automated tests
+            B.message("Window Notes is already running.\n\nNotes appear on the windows they're attached to. "
+                      "Press Ctrl+Alt+N in any window to attach one. Right-click a note to quit.")
         return
     App(load_config()).root.mainloop()
 

@@ -215,7 +215,7 @@ class Overlay:
 
     def __init__(self, root):
         root.update_idletasks()
-        self.hwnd = int(root.wm_frame(), 16)
+        self.hwnd = self.id = int(root.wm_frame(), 16)    # id: what rect() etc. accept
         ex = user32.GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE)
         user32.SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
 

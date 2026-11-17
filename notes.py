@@ -78,17 +78,23 @@ def norm_url(url):
     return re.sub(r"^www\.", "", url).rstrip("/")
 
 
+def _fits(text, rule):
+    """Wildcard match where only * and ? are special. fnmatch would also treat [abc] as
+    "one of a, b, c", so a rule like "Docs [draft]" wouldn't match its own window."""
+    return fnmatch.fnmatchcase(text, rule.replace("[", "[[]"))
+
+
 def matches(note, win):
     """True if every attach- rule the note has fits the window.
     `win` has app, title and url (url is '' when unknown)."""
-    if note["app"] and not fnmatch.fnmatchcase(app_key(win["app"]), app_key(note["app"])):
+    if note["app"] and not _fits(app_key(win["app"]), app_key(note["app"])):
         return False
-    if note["title"] and not fnmatch.fnmatchcase(win["title"].lower(), note["title"].lower()):
+    if note["title"] and not _fits(win["title"].lower(), note["title"].lower()):
         return False
     if note["url"]:
         url, rule = norm_url(win.get("url", "")), norm_url(note["url"])
         # "+ '/'" lets "github.com/*" match the bare "github.com" too
-        if not url or not (fnmatch.fnmatchcase(url, rule) or fnmatch.fnmatchcase(url + "/", rule)):
+        if not url or not (_fits(url, rule) or _fits(url + "/", rule)):
             return False
     return True
 
@@ -107,31 +113,44 @@ def new_note_text(win):
         props.append(f"attach-url: {yaml_str(page + '*')}")   # this page, any ?query, and pages under it
         hint = 'Change attach-url to "site.com/*" to show it on the whole site.'
     else:
-        title = re.sub(r"[*?\[\]]", "?", win["title"])           # wildcard characters would change the meaning
-        props.append(f"attach-title: {yaml_str(title)}")
+        # A title containing * or ? still matches itself (they match any text, including themselves).
+        props.append(f"attach-title: {yaml_str(win['title'])}")
         hint = 'Use * in attach-title (for example "*Budget*"), or delete it to show this on every window of the app.'
     return "---\n" + "\n".join(props) + "\n---\n\nWrite your note here.\n\n" + hint + "\n"
 
 
+_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
 def note_filename(title):
-    """A safe file name (without .md) from a window title."""
-    name = re.sub(r'[<>:"/\\|?*#^\[\]]+', " ", title or "").strip()[:60].strip()
+    """A safe file name (without .md) from a window title: no characters Windows, Obsidian
+    links or Markdown would trip over, no trailing dots, and not a name Windows reserves."""
+    name = re.sub(r'[<>:"/\\|?*#^\[\]\x00-\x1f]+', " ", title or "")
+    name = re.sub(r"\s+", " ", name)[:60].strip(" .")
+    if name.upper() in _RESERVED:
+        name += " note"
     return name or "Window note"
 
 
 def _rewrite(path, change):
-    """Read a note, let `change(rows)` edit its lines in place, and save it,
-    keeping the file's own line endings."""
+    """Read a note, let `change(rows)` edit its lines in place, and save it, keeping the
+    file's own line endings. `change` returns False to leave the file untouched; that's
+    passed back, so callers can tell the user nothing was saved."""
     with open(path, encoding="utf-8-sig", newline="") as f:   # newline="": keep \r\n as it is
         rows = f.read().split("\n")
-    change(rows)
+    if change(rows) is False:
+        return False
     path.write_text("\n".join(rows), encoding="utf-8", newline="")
+    return True
 
 
 def set_property(path, key, value):
-    """Set one front-matter property; an empty value removes it."""
+    """Set one front-matter property; an empty value removes it. Returns False (and changes
+    nothing) if the note no longer has front matter."""
     def change(rows):
         end = _front_matter_end(rows)
+        if end is None:
+            return False
         eol = "\r" if rows[0].endswith("\r") else ""
         for i in range(end - 1, 0, -1):                      # drop the old line(s)
             if re.match(rf"^{re.escape(key)}\s*:", rows[i]):
@@ -139,16 +158,22 @@ def set_property(path, key, value):
                 end -= 1
         if value:
             rows.insert(end, f"{key}: {yaml_str(value)}{eol}")
-    _rewrite(path, change)
+    return _rewrite(path, change)
 
 
-def toggle_checkbox(path, lineno):
-    """Flip '- [ ]' <-> '- [x]' on one line of the file."""
+def toggle_checkbox(path, lineno, expected=None):
+    """Flip '- [ ]' <-> '- [x]' on one line of the file. If `expected` is given, only when that
+    line still reads exactly so: if the note was edited since it was shown, ticking by line
+    number could hit the wrong line. Returns False when nothing was changed."""
     def change(rows):
-        m = re.match(r"^(\s*[-*+] \[)([ xX])(\].*)$", rows[lineno], re.S) if lineno < len(rows) else None
-        if m:
-            rows[lineno] = m.group(1) + (" " if m.group(2) in "xX" else "x") + m.group(3)
-    _rewrite(path, change)
+        line = rows[lineno].rstrip("\r") if lineno < len(rows) else None
+        if line is None or (expected is not None and line != expected):
+            return False
+        m = re.match(r"^(\s*[-*+] \[)([ xX])(\].*)$", rows[lineno], re.S)
+        if not m:
+            return False
+        rows[lineno] = m.group(1) + (" " if m.group(2) in "xX" else "x") + m.group(3)
+    return _rewrite(path, change)
 
 
 # ---- displaying -----------------------------------------------------------

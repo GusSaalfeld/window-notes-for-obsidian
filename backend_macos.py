@@ -62,8 +62,14 @@ def message(text):
 
 
 def open_target(target):
-    """Open a file, folder, web address or obsidian:// link with its default app."""
-    subprocess.Popen(["open", str(target)])
+    """Open a file, folder, web address or obsidian:// link with its default app.
+    Raises OSError if no app can open it, so the app can say so."""
+    try:
+        done = subprocess.run(["open", str(target)], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return
+    if done.returncode:
+        raise OSError(done.stderr.strip() or "no app can open this")
 
 
 def data_dir():
@@ -188,6 +194,7 @@ class Overlay:
         self.window.setLevel_(3)                 # NSFloatingWindowLevel
         self.window.setCollectionBehavior_(1 | 256)   # on all Spaces, and over full-screen apps
         self.window.setHidesOnDeactivate_(False)
+        self.id = int(self.window.windowNumber())          # the window list's id for it
 
     def show(self):
         self.window.orderFrontRegardless()

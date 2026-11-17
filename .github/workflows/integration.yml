@@ -1,0 +1,44 @@
+# Runs the full fail-state test (tests/integration.py) on a real desktop on each system.
+# It runs on every push to main, and from the Actions tab ("Run workflow").
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install comtypes
+      - run: python tests/integration.py
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tk, python-xlib and a virtual X11 desktop
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-tk python3-xlib xvfb openbox xdotool
+      - name: Run on Xvfb + Openbox
+        run: |
+          Xvfb :99 -screen 0 1600x1000x24 & sleep 1
+          DISPLAY=:99 openbox & sleep 1
+          DISPLAY=:99 python3 tests/integration.py
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+      - run: python tests/integration.py

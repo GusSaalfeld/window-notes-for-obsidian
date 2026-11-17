@@ -181,7 +181,7 @@ class App:
         self.events.ready.wait(2)
 
         self.rescan()
-        self.ticks = 0
+        self.last_poll = self.last_scan = time.monotonic()
         self.root.after(QUEUE_MS, self.tick)
         log(f"Window Notes running on {B.NAME}. Notes folder: {self.dir}")
         if B.NOTICE:
@@ -206,10 +206,13 @@ class App:
                 elif msg == "hotkey-failed":
                     log(f"Ctrl+Alt+{self.hotkey} is already used by another app; the new-note hotkey is off.",
                         problem=True)
-            self.ticks += 1
-            if self.ticks % (POLL_MS // QUEUE_MS) == 0:
-                update = True
-            if self.ticks % (RESCAN_MS // QUEUE_MS) == 0:
+            # timed by the clock, not by counting ticks: on a slow or busy machine each tick
+            # takes longer than QUEUE_MS, and counting would stretch "every 2 s" to much longer
+            now = time.monotonic()
+            if now - self.last_poll >= POLL_MS / 1000:
+                self.last_poll, update = now, True
+            if now - self.last_scan >= RESCAN_MS / 1000:
+                self.last_scan = now
                 self.rescan()
             if update:
                 self.update_box()

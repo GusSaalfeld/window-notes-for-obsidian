@@ -21,6 +21,7 @@ try:
     import ApplicationServices as AX
     import Quartz as Q
     from AppKit import NSApplication, NSRunningApplication, NSScreen, NSWorkspace
+    from PyObjCTools import AppHelper
 except ImportError:
     sys.exit("Window Notes needs PyObjC: pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa "
              "pyobjc-framework-ApplicationServices")
@@ -110,8 +111,11 @@ def _front_window():
 
 
 def _ax_title(pid):
-    """Title of the app's focused window, via Accessibility (empty without permission)."""
+    """Title of the app's focused window, via Accessibility (empty without permission).
+    The timeout matters: by default macOS waits up to 6 s for a busy app to answer, and
+    every wait would freeze the note box."""
     app = AX.AXUIElementCreateApplication(pid)
+    AX.AXUIElementSetMessagingTimeout(app, 0.3)
     err, window = AX.AXUIElementCopyAttributeValue(app, AX.kAXFocusedWindowAttribute, None)
     if err or window is None:
         return ""
@@ -199,10 +203,16 @@ class Overlay:
     def show(self):
         self.window.orderFrontRegardless()
 
+    # AppKit windows may only be changed on the main thread, so calls from the event thread
+    # are handed over with callAfter (Tk's event loop runs the main thread's Cocoa run loop).
     def hide(self, from_thread=False):
+        if from_thread:
+            return AppHelper.callAfter(self.window.orderOut_, None)
         self.window.orderOut_(None)
 
     def move(self, x, y, from_thread=False):
+        if from_thread:
+            return AppHelper.callAfter(self.move, x, y)
         self.window.setFrameTopLeftPoint_((x, _main_height() - y))
 
     def is_own(self, win):
@@ -219,14 +229,15 @@ class Overlay:
 
 # ---- hotkey and window events (own thread) -----------------------------------
 class Events(threading.Thread):
-    """Polls the window list (cheap) and reports when the front window or the watched
-    window's position changes, and listens for the hotkey. It only reports: AppKit calls
-    that move windows must happen on the main thread."""
+    """Polls the window list (cheap) every 20 ms and listens for the hotkey. Reports a new
+    front window with on_foreground (a full re-check), and a move or minimize of the watched
+    window with on_moved (just repositions the box, so dragging stays smooth)."""
 
     def __init__(self, hotkey, on_foreground, on_moved, on_hotkey, on_hotkey_failed):
         super().__init__(daemon=True)
         self.hotkey = hotkey
-        self.on_foreground, self.on_hotkey, self.on_hotkey_failed = on_foreground, on_hotkey, on_hotkey_failed
+        self.on_foreground, self.on_moved = on_foreground, on_moved
+        self.on_hotkey, self.on_hotkey_failed = on_hotkey, on_hotkey_failed
         self.ready, self.stopped, self.want = threading.Event(), False, None
 
     def _key_tap(self):
@@ -255,16 +266,20 @@ class Events(threading.Thread):
     def run(self):
         self._key_tap()
         self.ready.set()
-        last = None
+        last_front = last_place = None
         while not self.stopped:
             Q.CFRunLoopRunInMode(Q.kCFRunLoopDefaultMode, 0.02, False)   # delivers key events for 20 ms
             front = _front_window()
-            watched = _info(self.want) if self.want else None
-            now = (front and front["kCGWindowNumber"],
-                   watched and dict(watched["kCGWindowBounds"]), watched and watched.get("kCGWindowIsOnscreen"))
-            if now != last:
-                last = now
-                self.on_foreground()          # the Tk thread re-checks and moves the box
+            front = front and front["kCGWindowNumber"]
+            if front != last_front:
+                last_front = front
+                self.on_foreground()
+            if self.want:
+                watched = _info(self.want)
+                place = watched and (dict(watched["kCGWindowBounds"]), watched.get("kCGWindowIsOnscreen"))
+                if place != last_place:
+                    last_place = place
+                    self.on_moved(self.want)
 
     def watch(self, win):
         self.want = win["id"]

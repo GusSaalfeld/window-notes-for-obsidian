@@ -7,8 +7,11 @@ It starts the app with a temporary vault, opens windows it controls (tests/targe
 and checks both what the app reports (WN_TEST_STATE) and what's really on screen (through the
 same backend module the app uses). Every scenario is recorded; the run continues past failures
 and exits non-zero if any failed."""
+import faulthandler
 import json
 import os
+import queue
+import threading
 import shutil
 import subprocess
 import sys
@@ -17,6 +20,9 @@ import time
 import traceback
 from pathlib import Path
 
+# If the whole run stalls, print where every thread is stuck and stop, instead of hanging
+# until the CI job is cancelled with no clue.
+faulthandler.dump_traceback_later(600, exit=True)
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 if sys.platform == "win32":
@@ -131,14 +137,25 @@ class Window:
     """A tests/target_window.py process."""
 
     def __init__(self, title):
+        self.title = title
         self.proc = subprocess.Popen([sys.executable, str(ROOT / "tests" / "target_window.py"), title],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        self.id = int(self.proc.stdout.readline().split()[1])
+        self.lines = queue.Queue()            # its answers, read on a thread so a hang can time out
+        threading.Thread(target=lambda: [self.lines.put(l.strip()) for l in self.proc.stdout], daemon=True).start()
+        self.id = int(self.answer("start").split()[1])
+
+    def answer(self, what, timeout=15):
+        try:
+            return self.lines.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError(f"target window {self.title!r} didn't answer {what!r} within {timeout} s")
 
     def do(self, command):
         self.proc.stdin.write(command + "\n")
         self.proc.stdin.flush()
-        self.proc.stdout.readline()           # "ok"
+        reply = self.answer(command)
+        if reply != "ok":
+            raise RuntimeError(f"target window: {command!r} -> {reply}")
         time.sleep(0.05)
 
     def rect(self):

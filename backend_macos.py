@@ -32,6 +32,13 @@ FONT = "Helvetica Neue"
 FONT_BOLD = None
 SUPPORTS_URL = True
 TITLE_BAR = 32              # points: window bounds include the title bar
+# App Nap: macOS slows the timers of background apps whose windows aren't in front, which
+# Window Notes always is. Declaring latency-critical work keeps the box following windows
+# and noticing file changes on time. (Holding this reference keeps the declaration active.)
+from Foundation import NSActivityLatencyCritical, NSActivityUserInitiatedAllowingIdleSystemSleep, NSProcessInfo
+_NO_APP_NAP = NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+    NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical, "Keeping notes next to their windows")
+
 NOTICE = ("" if AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: True}) else
           "Accessibility permission is off, so window titles and the hotkey won't work. Turn it on in "
           "System Settings > Privacy & Security > Accessibility, then restart Window Notes.")

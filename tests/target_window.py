@@ -38,11 +38,18 @@ def activate():
     root.deiconify()
     root.lift()
     if sys.platform == "win32":
+        # Windows only lets the foreground app hand over focus. Joining its input queue for a
+        # moment makes us count as it. (Tapping Alt instead would open our own window menu
+        # in keyboard mode when we're already in front, freezing this window's event loop.)
         import ctypes
-        u = ctypes.windll.user32
-        u.keybd_event(0x12, 0, 0, 0)          # an Alt tap lets a background process take focus
-        u.keybd_event(0x12, 0, 2, 0)
+        u, k = ctypes.windll.user32, ctypes.windll.kernel32
+        front = u.GetForegroundWindow()
+        theirs, ours = u.GetWindowThreadProcessId(front, None), k.GetCurrentThreadId()
+        joined = theirs and theirs != ours and u.AttachThreadInput(ours, theirs, True)
+        u.BringWindowToTop(WID)
         u.SetForegroundWindow(WID)
+        if joined:
+            u.AttachThreadInput(ours, theirs, False)
     elif sys.platform == "darwin":
         from AppKit import NSApplication
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)

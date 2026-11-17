@@ -243,12 +243,16 @@ def _():
 
 @scenario("note follows the window")
 def _():
-    worst = 0
+    """After each move, how long until the box is back in its corner? Fails over 1 s."""
+    times = []
     for i in range(1, 16):
         target.do(f"move {150 + i * 6} {120 + i * 4}")
-        time.sleep(0.15)
-        worst = max(worst, offset_error(target))
-    return f"worst offset {worst}px over 15 moves" if worst <= 3 else f"FAIL: worst offset {worst}px"
+        moved = time.time()
+        if not wait_for(lambda: offset_error(target) <= 3, timeout=1.0, every=0.01):
+            return f"FAIL: after move {i} the box was still {offset_error(target)}px off after 1 s"
+        times.append(time.time() - moved)
+    times.sort()
+    return f"caught up after every move: typical {times[len(times) // 2] * 1000:.0f} ms, slowest {times[-1] * 1000:.0f} ms"
 
 
 @scenario("hidden when another window is active")

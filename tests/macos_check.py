@@ -101,12 +101,15 @@ if box:
     # trusting the requested position: macOS may adjust it.
     textedit_pid = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")[0].processIdentifier()
     def settled():
-        """Both windows' bounds once they've stopped changing (up to 2 s). This checks where
-        the box ends up; how fast it gets there is measured by tests/integration.py."""
-        last, end = None, time.time() + 2
+        """Both windows' bounds once they've stayed unchanged for 0.5 s (giving up after 3 s).
+        The box starts following up to ~0.2 s after the window moves, so a shorter quiet
+        period can catch it before it has moved. This checks where the box ends up; how
+        fast it gets there is measured by tests/integration.py."""
+        last, same, end = None, 0, time.time() + 3
         while time.time() < end:
             now = (box_bounds(app.pid), box_bounds(textedit_pid))
-            if now == last and all(now):
+            same = same + 1 if now == last and all(now) else 0
+            if same >= 5:
                 return now
             last = now
             time.sleep(0.1)

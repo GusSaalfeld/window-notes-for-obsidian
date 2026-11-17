@@ -92,7 +92,9 @@ def showing():
 def why():
     """What the app reports and what the system says, for failure messages."""
     s = state()
-    return (f"app says showing={s.get('showing')} target={s.get('target')!r} notes={s.get('notes')} "
+    age = time.time() - s.get("alive", 0)
+    return (f"app (last report {age:.1f}s ago, {s.get('notes_on_disk')} attached notes on disk) says "
+            f"showing={s.get('showing')} target={s.get('target')!r} notes={s.get('notes')} "
             f"errors={s.get('errors', [])[-2:]}; on screen={visible(s['box_id']) if s else '?'}; "
             f"front window={(B.foreground() or {}).get('title')!r}")
 
@@ -321,6 +323,8 @@ def _():
 def _():
     target.do("activate")
     time.sleep(2)                    # let any message from the previous step (opening Obsidian) arrive
+    target.do("activate")            # ...or a "how do you want to open this?" dialog it caused
+    wait_for(showing)
     errors = state()["error_count"]
     (NOTES / "binary.md").write_bytes(b"\x00\xff\x89PNG garbage")
     (NOTES / "latin1.md").write_bytes("---\nattach-title: \"WN Target*\"\n---\ncaf\xe9\n".encode("latin-1"))

@@ -234,12 +234,14 @@ class App:
                 clickable.append({"kind": kind, "line": line, "x": x, "y": y,
                                   "w": lab.winfo_width(), "h": lab.winfo_height()})
         key = (str(self.shown), len(ERRORS), json.dumps(clickable))
-        if getattr(self, "_reported", None) == key:
-            return
-        self._reported = key
+        now = time.time()
+        if getattr(self, "_reported", None) == key and now - getattr(self, "_reported_at", 0) < 0.5:
+            return                          # unchanged: still rewrite twice a second as a heartbeat
+        self._reported, self._reported_at = key, now
         state = {"box_id": self.overlay.id, "showing": self.shown is not None and self.shown != "welcome",
                  "target": self.target and self.target["title"], "notes": getattr(self, "drawn", []),
-                 "size": self.size, "clickable": clickable, "errors": ERRORS[-10:], "error_count": len(ERRORS)}
+                 "size": self.size, "clickable": clickable, "errors": ERRORS[-10:], "error_count": len(ERRORS),
+                 "alive": now, "notes_on_disk": len(self.notes)}
         tmp = Path(self.report_path + ".tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")
         os.replace(tmp, self.report_path)        # atomic: the test never reads half a file
@@ -358,18 +360,24 @@ class App:
         """Build the box for these notes. `s` is the display scale (1.0 = 100%). If it comes
         out taller than `max_height`, the bottom notes are folded (on screen only) until it fits,
         so no note ends up off the bottom of the screen."""
-        squeezed = set()
-        while True:
-            self._draw(hits, s, squeezed)
-            still_open = [n["path"] for n in hits if n["path"] not in self.collapsed | squeezed]
-            if self.size[1] <= max_height or not still_open:
-                return
-            squeezed.add(still_open[-1])
+        self._draw(hits, s, set())
+        excess = self.size[1] - max_height
+        if excess <= 0:
+            return
+        squeezed = set()                    # measure once, then redraw once
+        for note, card, head in reversed(self.cards):
+            if excess <= 0:
+                break
+            if note["path"] not in self.collapsed:
+                squeezed.add(note["path"])
+                excess -= card.winfo_reqheight() - head.winfo_reqheight() - int(14 * s)   # body + spacing
+        self._draw(hits, s, squeezed)
 
     def _draw(self, hits, s, squeezed):
         width = int(BOX_WIDTH * s)
         self.clear(hits[0]["color"])
         self.clickables, self.drawn = [], [n["name"] for n in hits]   # for the test report
+        self.cards = []                                               # (note, card, header) for draw()
         for i, note in enumerate(hits):
             self.use_palette(note["color"])
             if i:
@@ -394,6 +402,7 @@ class App:
             if is_open:
                 self.draw_body(card, note, width - 20)
             self.bind_menu(card, note)
+            self.cards.append((note, card, head))
         self.box.bind("<Button-3>", self.popup)
         self.fit(width)
 
